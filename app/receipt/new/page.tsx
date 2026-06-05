@@ -8,28 +8,31 @@ import { ArrowLeft, Save } from "lucide-react";
 type Invoice = {
   id: number;
   documentNo: string;
+  customerId: number | null;
   totalAmount: number;
   paidAmount: number;
   balanceDue: number;
+  status: string;
   customer: {
     id: number;
     name: string;
+    phone: string | null;
+    email: string | null;
+    address: string | null;
   } | null;
 };
-
-function money(value: number) {
-  return new Intl.NumberFormat("th-TH", {
-    style: "currency",
-    currency: "THB",
-  }).format(value);
-}
 
 export default function NewReceiptPage() {
   const router = useRouter();
 
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [invoiceId, setInvoiceId] = useState("");
-  const [paymentAmount, setPaymentAmount] = useState("");
+
+  const [receiptDate, setReceiptDate] = useState(() => {
+    return new Date().toISOString().slice(0, 10);
+  });
+
+  const [totalAmount, setTotalAmount] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("TRANSFER");
   const [paymentRef, setPaymentRef] = useState("");
   const [note, setNote] = useState("");
@@ -38,37 +41,62 @@ export default function NewReceiptPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    async function loadData() {
-      try {
-        const res = await fetch("/api/invoice/unpaid");
-        const data = await res.json();
-
-        setInvoices(data);
-      } catch (err) {
-        console.error(err);
-        setError("โหลดข้อมูลใบแจ้งหนี้ไม่สำเร็จ");
-      } finally {
-        setLoadingData(false);
-      }
-    }
-
-    loadData();
-  }, []);
+  function money(value: number) {
+    return new Intl.NumberFormat("th-TH", {
+      style: "currency",
+      currency: "THB",
+    }).format(value || 0);
+  }
 
   const selectedInvoice = useMemo(() => {
     return invoices.find((invoice) => String(invoice.id) === invoiceId);
   }, [invoices, invoiceId]);
 
+  const receiveAmount = Number(totalAmount || 0);
+
+  const balanceAfterReceive = selectedInvoice
+    ? selectedInvoice.balanceDue - receiveAmount
+    : 0;
+
+  useEffect(() => {
+    async function loadInvoices() {
+      try {
+        const res = await fetch("/api/invoice/unpaid");
+        const data = await res.json();
+
+        if (!res.ok) {
+          setError(data.message || "โหลด Invoice ไม่สำเร็จ");
+          return;
+        }
+
+        setInvoices(Array.isArray(data) ? data : []);
+      } catch (err) {
+        console.error(err);
+        setError("โหลดข้อมูล Invoice ไม่สำเร็จ");
+      } finally {
+        setLoadingData(false);
+      }
+    }
+
+    loadInvoices();
+  }, []);
+
   function handleInvoiceChange(value: string) {
     setInvoiceId(value);
+    setError("");
 
     const invoice = invoices.find((item) => String(item.id) === value);
 
     if (invoice) {
-      setPaymentAmount(String(invoice.balanceDue));
+      setTotalAmount(String(invoice.balanceDue));
+      setNote(
+        invoice.balanceDue === invoice.totalAmount
+          ? "รับชำระเต็มจำนวน"
+          : "รับชำระยอดค้างบางส่วน"
+      );
     } else {
-      setPaymentAmount("");
+      setTotalAmount("");
+      setNote("");
     }
   }
 
@@ -77,14 +105,24 @@ export default function NewReceiptPage() {
     setError("");
     setLoading(true);
 
-    if (!invoiceId) {
+    if (!selectedInvoice) {
       setError("กรุณาเลือกใบแจ้งหนี้");
       setLoading(false);
       return;
     }
 
-    if (Number(paymentAmount || 0) <= 0) {
-      setError("กรุณากรอกยอดรับเงิน");
+    if (receiveAmount <= 0) {
+      setError("ยอดรับเงินต้องมากกว่า 0");
+      setLoading(false);
+      return;
+    }
+
+    if (receiveAmount > selectedInvoice.balanceDue) {
+      setError(
+        `ยอดรับเงินมากกว่ายอดค้างชำระ ยอดค้างปัจจุบันคือ ${money(
+          selectedInvoice.balanceDue
+        )}`
+      );
       setLoading(false);
       return;
     }
@@ -96,8 +134,9 @@ export default function NewReceiptPage() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          invoiceId,
-          paymentAmount,
+          invoiceId: selectedInvoice.id,
+          receiptDate,
+          totalAmount: receiveAmount,
           paymentMethod,
           paymentRef,
           note,
@@ -107,12 +146,12 @@ export default function NewReceiptPage() {
       const data = await res.json();
 
       if (!res.ok) {
-        setError(data.message || "สร้างใบเสร็จไม่สำเร็จ");
+        setError(data.message || "ไม่สามารถสร้างใบเสร็จรับเงินได้");
         setLoading(false);
         return;
       }
 
-      router.push("/receipt");
+      router.push(`/receipt/${data.id}`);
       router.refresh();
     } catch (err) {
       console.error(err);
@@ -123,7 +162,7 @@ export default function NewReceiptPage() {
 
   return (
     <main className="min-h-screen bg-[#f7f3ea] px-6 py-8">
-      <div className="mx-auto max-w-4xl">
+      <div className="mx-auto max-w-5xl">
         <div className="mb-6 rounded-3xl bg-white p-6 shadow-sm">
           <Link
             href="/receipt"
@@ -138,7 +177,7 @@ export default function NewReceiptPage() {
           </h1>
 
           <p className="mt-1 text-sm text-gray-500">
-            เลือกใบแจ้งหนี้ที่ยังค้างชำระ แล้วบันทึกยอดรับเงิน
+            ออกใบเสร็จเฉพาะยอดที่ลูกค้าชำระเงินจริง และระบบจะอัปเดตยอดค้างของ Invoice ให้อัตโนมัติ
           </p>
         </div>
 
@@ -154,74 +193,82 @@ export default function NewReceiptPage() {
 
           {loadingData ? (
             <div className="rounded-2xl bg-gray-50 p-6 text-sm text-gray-500">
-              กำลังโหลดข้อมูล...
+              กำลังโหลด Invoice ค้างชำระ...
             </div>
           ) : invoices.length === 0 ? (
-            <div className="rounded-2xl bg-yellow-50 p-6 text-sm font-medium text-yellow-700">
-              ยังไม่มีใบแจ้งหนี้ที่ค้างชำระ กรุณาสร้างใบแจ้งหนี้ก่อน
+            <div className="rounded-2xl bg-yellow-50 p-6 text-sm text-yellow-800">
+              ยังไม่มี Invoice ที่มียอดค้างชำระ กรุณาสร้างใบแจ้งหนี้ก่อน
+              และให้ยอดชำระแล้วเป็น 0
             </div>
           ) : (
             <>
-              <div className="grid gap-5 md:grid-cols-2">
-                <div className="md:col-span-2">
-                  <label className="mb-2 block text-sm font-semibold text-gray-700">
-                    เลือกใบแจ้งหนี้ *
-                  </label>
+              <div className="mb-6">
+                <label className="mb-2 block text-sm font-semibold text-gray-700">
+                  เลือกใบแจ้งหนี้ *
+                </label>
 
-                  <select
-                    value={invoiceId}
-                    onChange={(e) => handleInvoiceChange(e.target.value)}
-                    className="w-full rounded-2xl border px-4 py-3 text-sm outline-none focus:border-gray-900"
-                  >
-                    <option value="">เลือก Invoice</option>
-                    {invoices.map((invoice) => (
-                      <option key={invoice.id} value={invoice.id}>
-                        {invoice.documentNo} - {invoice.customer?.name || "-"} -
-                        ค้าง {money(invoice.balanceDue)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <select
+                  value={invoiceId}
+                  onChange={(e) => handleInvoiceChange(e.target.value)}
+                  className="w-full rounded-2xl border px-4 py-3 text-sm outline-none focus:border-gray-900"
+                >
+                  <option value="">เลือกใบแจ้งหนี้</option>
 
-                {selectedInvoice && (
-                  <div className="md:col-span-2 rounded-3xl bg-gray-900 p-5 text-white">
-                    <h3 className="mb-4 font-bold">สรุป Invoice</h3>
+                  {invoices.map((invoice) => (
+                    <option key={invoice.id} value={invoice.id}>
+                      {invoice.documentNo} - {invoice.customer?.name || "-"} -
+                      ค้างชำระ {money(invoice.balanceDue)}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-                    <div className="grid gap-3 text-sm md:grid-cols-3">
-                      <div>
-                        <p className="text-gray-300">ยอดรวม</p>
-                        <p className="mt-1 text-lg font-bold">
-                          {money(selectedInvoice.totalAmount)}
-                        </p>
-                      </div>
+              {selectedInvoice && (
+                <div className="mb-6 rounded-3xl bg-gray-900 p-6 text-white">
+                  <h2 className="mb-4 text-lg font-bold">สรุป Invoice</h2>
 
-                      <div>
-                        <p className="text-gray-300">ชำระแล้ว</p>
-                        <p className="mt-1 text-lg font-bold text-green-300">
-                          {money(selectedInvoice.paidAmount)}
-                        </p>
-                      </div>
+                  <div className="grid gap-5 md:grid-cols-4">
+                    <div>
+                      <p className="text-sm text-gray-300">เลข Invoice</p>
+                      <p className="mt-1 font-bold">
+                        {selectedInvoice.documentNo}
+                      </p>
+                    </div>
 
-                      <div>
-                        <p className="text-gray-300">ค้างชำระ</p>
-                        <p className="mt-1 text-lg font-bold text-red-300">
-                          {money(selectedInvoice.balanceDue)}
-                        </p>
-                      </div>
+                    <div>
+                      <p className="text-sm text-gray-300">ยอดรวม</p>
+                      <p className="mt-1 text-lg font-bold">
+                        {money(selectedInvoice.totalAmount)}
+                      </p>
+                    </div>
+
+                    <div>
+                      <p className="text-sm text-gray-300">ชำระแล้ว</p>
+                      <p className="mt-1 text-lg font-bold text-green-300">
+                        {money(selectedInvoice.paidAmount)}
+                      </p>
+                    </div>
+
+                    <div>
+                      <p className="text-sm text-gray-300">ค้างชำระ</p>
+                      <p className="mt-1 text-lg font-bold text-red-300">
+                        {money(selectedInvoice.balanceDue)}
+                      </p>
                     </div>
                   </div>
-                )}
+                </div>
+              )}
 
+              <div className="grid gap-5 md:grid-cols-2">
                 <div>
                   <label className="mb-2 block text-sm font-semibold text-gray-700">
-                    ยอดรับเงิน *
+                    วันที่รับเงิน
                   </label>
 
                   <input
-                    type="number"
-                    value={paymentAmount}
-                    onChange={(e) => setPaymentAmount(e.target.value)}
-                    placeholder="0"
+                    type="date"
+                    value={receiptDate}
+                    onChange={(e) => setReceiptDate(e.target.value)}
                     className="w-full rounded-2xl border px-4 py-3 text-sm outline-none focus:border-gray-900"
                   />
                 </div>
@@ -238,10 +285,30 @@ export default function NewReceiptPage() {
                   >
                     <option value="CASH">เงินสด</option>
                     <option value="TRANSFER">โอนเงิน</option>
-                    <option value="QR">QR</option>
                     <option value="CREDIT_CARD">บัตรเครดิต</option>
+                    <option value="QR">QR</option>
                     <option value="OTHER">อื่น ๆ</option>
                   </select>
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-semibold text-gray-700">
+                    ยอดรับเงินงวดนี้ *
+                  </label>
+
+                  <input
+                    type="number"
+                    min="0"
+                    value={totalAmount}
+                    onChange={(e) => setTotalAmount(e.target.value)}
+                    className="w-full rounded-2xl border px-4 py-3 text-sm outline-none focus:border-gray-900"
+                  />
+
+                  {selectedInvoice && (
+                    <p className="mt-2 text-xs text-gray-500">
+                      ห้ามเกินยอดค้างชำระ {money(selectedInvoice.balanceDue)}
+                    </p>
+                  )}
                 </div>
 
                 <div>
@@ -252,12 +319,12 @@ export default function NewReceiptPage() {
                   <input
                     value={paymentRef}
                     onChange={(e) => setPaymentRef(e.target.value)}
-                    placeholder="เช่น เลขสลิป / Ref"
+                    placeholder="เช่น เลขสลิป / หมายเลขโอน"
                     className="w-full rounded-2xl border px-4 py-3 text-sm outline-none focus:border-gray-900"
                   />
                 </div>
 
-                <div>
+                <div className="md:col-span-2">
                   <label className="mb-2 block text-sm font-semibold text-gray-700">
                     หมายเหตุ
                   </label>
@@ -271,6 +338,51 @@ export default function NewReceiptPage() {
                 </div>
               </div>
 
+              {selectedInvoice && (
+                <div className="mt-8 flex justify-end">
+                  <div className="w-full max-w-md rounded-3xl bg-gray-50 p-5">
+                    <div className="space-y-3 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">ยอดค้างก่อนรับเงิน</span>
+                        <span className="font-semibold text-red-600">
+                          {money(selectedInvoice.balanceDue)}
+                        </span>
+                      </div>
+
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">รับเงินงวดนี้</span>
+                        <span className="font-semibold text-green-700">
+                          {money(receiveAmount)}
+                        </span>
+                      </div>
+
+                      <div className="border-t pt-3">
+                        <div className="flex justify-between text-lg">
+                          <span className="font-bold text-gray-900">
+                            ค้างชำระหลังรับเงิน
+                          </span>
+                          <span
+                            className={`font-bold ${
+                              balanceAfterReceive <= 0
+                                ? "text-green-700"
+                                : "text-red-600"
+                            }`}
+                          >
+                            {money(Math.max(balanceAfterReceive, 0))}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl bg-white p-3 text-xs text-gray-600">
+                        {balanceAfterReceive <= 0
+                          ? "หลังบันทึก ใบแจ้งหนี้จะเปลี่ยนเป็น ชำระแล้ว"
+                          : "หลังบันทึก ใบแจ้งหนี้จะเปลี่ยนเป็น ชำระบางส่วน"}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="mt-6 flex justify-end gap-3">
                 <Link
                   href="/receipt"
@@ -281,7 +393,7 @@ export default function NewReceiptPage() {
 
                 <button
                   type="submit"
-                  disabled={loading}
+                  disabled={loading || !selectedInvoice}
                   className="inline-flex items-center gap-2 rounded-2xl bg-gray-900 px-5 py-3 text-sm font-semibold text-white hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <Save size={18} />

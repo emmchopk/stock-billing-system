@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   try {
     const invoices = await prisma.invoice.findMany({
@@ -9,12 +11,13 @@ export async function GET() {
           gt: 0,
         },
         status: {
-          in: ["UNPAID", "PARTIAL"],
+          notIn: ["CANCELLED", "DRAFT"],
         },
       },
       include: {
         customer: true,
         items: true,
+        receipts: true,
       },
       orderBy: {
         createdAt: "desc",
@@ -23,11 +26,15 @@ export async function GET() {
 
     return NextResponse.json(invoices);
   } catch (error) {
-    console.error("GET UNPAID INVOICE ERROR:", error);
+    console.error("GET UNPAID INVOICES ERROR:", error);
 
     return NextResponse.json(
-      { message: "ไม่สามารถดึงข้อมูลใบแจ้งหนี้ค้างชำระได้" },
-      { status: 500 }
+      {
+        message: "ไม่สามารถดึงรายการ Invoice ค้างชำระได้",
+      },
+      {
+        status: 500,
+      }
     );
   }
 }

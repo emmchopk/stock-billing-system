@@ -1,15 +1,17 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
+export const dynamic = "force-dynamic";
+
 function createDocumentNo() {
   const now = new Date();
 
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
   const time = String(now.getTime()).slice(-5);
 
-  return `RC-${year}${month}${day}-${time}`;
+  return `RC-${y}${m}${d}-${time}`;
 }
 
 export async function GET() {
@@ -18,11 +20,7 @@ export async function GET() {
       include: {
         customer: true,
         invoice: true,
-        items: {
-          include: {
-            product: true,
-          },
-        },
+        items: true,
       },
       orderBy: {
         createdAt: "desc",
@@ -31,11 +29,15 @@ export async function GET() {
 
     return NextResponse.json(receipts);
   } catch (error) {
-    console.error("GET RECEIPT ERROR:", error);
+    console.error("GET RECEIPTS ERROR:", error);
 
     return NextResponse.json(
-      { message: "ไม่สามารถดึงข้อมูลใบเสร็จรับเงินได้" },
-      { status: 500 }
+      {
+        message: "ไม่สามารถดึงข้อมูลใบเสร็จรับเงินได้",
+      },
+      {
+        status: 500,
+      }
     );
   }
 }
@@ -44,23 +46,36 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
 
-    const invoiceId = Number(body.invoiceId || 0);
-    const paymentAmount = Number(body.paymentAmount || 0);
+    const invoiceId = body.invoiceId ? Number(body.invoiceId) : null;
+    const totalAmount = Number(body.totalAmount || 0);
+
+    const receiptDate = body.receiptDate
+      ? new Date(`${body.receiptDate}T00:00:00`)
+      : new Date();
+
     const paymentMethod = String(body.paymentMethod || "CASH");
     const paymentRef = String(body.paymentRef || "").trim();
     const note = String(body.note || "").trim();
 
     if (!invoiceId) {
       return NextResponse.json(
-        { message: "กรุณาเลือกใบแจ้งหนี้" },
-        { status: 400 }
+        {
+          message: "กรุณาเลือกใบแจ้งหนี้",
+        },
+        {
+          status: 400,
+        }
       );
     }
 
-    if (paymentAmount <= 0) {
+    if (totalAmount <= 0) {
       return NextResponse.json(
-        { message: "กรุณากรอกยอดรับเงินมากกว่า 0" },
-        { status: 400 }
+        {
+          message: "ยอดรับเงินต้องมากกว่า 0",
+        },
+        {
+          status: 400,
+        }
       );
     }
 
@@ -69,57 +84,115 @@ export async function POST(req: Request) {
         id: invoiceId,
       },
       include: {
-        items: true,
         customer: true,
+        items: true,
+        receipts: true,
       },
     });
 
     if (!invoice) {
       return NextResponse.json(
-        { message: "ไม่พบใบแจ้งหนี้" },
-        { status: 404 }
+        {
+          message: "ไม่พบใบแจ้งหนี้",
+        },
+        {
+          status: 404,
+        }
+      );
+    }
+
+    if (!invoice.customerId) {
+      return NextResponse.json(
+        {
+          message: "ใบแจ้งหนี้นี้ยังไม่มีข้อมูลลูกค้า",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
+
+    if (invoice.status === "CANCELLED") {
+      return NextResponse.json(
+        {
+          message: "ไม่สามารถออกใบเสร็จให้ใบแจ้งหนี้ที่ยกเลิกแล้ว",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
+
+    if (invoice.status === "DRAFT") {
+      return NextResponse.json(
+        {
+          message: "กรุณาเปลี่ยนใบแจ้งหนี้จากร่างเป็นยังไม่ชำระก่อน",
+        },
+        {
+          status: 400,
+        }
       );
     }
 
     if (invoice.balanceDue <= 0) {
       return NextResponse.json(
-        { message: "ใบแจ้งหนี้นี้ชำระครบแล้ว" },
-        { status: 400 }
+        {
+          message: "ใบแจ้งหนี้นี้ชำระครบแล้ว ไม่สามารถออกใบเสร็จซ้ำได้",
+        },
+        {
+          status: 400,
+        }
       );
     }
 
-    if (paymentAmount > invoice.balanceDue) {
+    if (totalAmount > invoice.balanceDue) {
       return NextResponse.json(
         {
-          message: `ยอดรับเงินมากกว่ายอดค้างชำระ ค้างชำระอยู่ ${invoice.balanceDue}`,
+          message: `ยอดรับเงินมากกว่ายอดค้างชำระ ค้างชำระปัจจุบัน ${invoice.balanceDue} บาท`,
         },
-        { status: 400 }
+        {
+          status: 400,
+        }
       );
     }
 
-    const newPaidAmount = invoice.paidAmount + paymentAmount;
+    const newPaidAmount = invoice.paidAmount + totalAmount;
     const newBalanceDue = invoice.totalAmount - newPaidAmount;
 
-    let newStatus: "PARTIAL" | "PAID" = "PARTIAL";
+    let invoiceStatus:
+      | "DRAFT"
+      | "UNPAID"
+      | "PARTIAL"
+      | "PAID"
+      | "OVERDUE"
+      | "CANCELLED" = "UNPAID";
 
-    if (newBalanceDue <= 0) {
-      newStatus = "PAID";
+    if (newPaidAmount <= 0) {
+      invoiceStatus = "UNPAID";
+    } else if (newBalanceDue <= 0) {
+      invoiceStatus = "PAID";
+    } else {
+      invoiceStatus = "PARTIAL";
     }
 
     const receipt = await prisma.$transaction(async (tx) => {
       const createdReceipt = await tx.receipt.create({
         data: {
           documentNo: createDocumentNo(),
-          customerId: invoice.customerId,
           invoiceId: invoice.id,
-          subtotal: paymentAmount,
+          customerId: invoice.customerId,
+          receiptDate,
+
+          subtotal: totalAmount,
           discount: 0,
           vat: 0,
-          totalAmount: paymentAmount,
+          totalAmount,
+
           paymentMethod:
             paymentMethod as "CASH" | "TRANSFER" | "CREDIT_CARD" | "QR" | "OTHER",
           paymentRef: paymentRef || null,
           note: note || null,
+
           items: {
             create: invoice.items.map((item) => ({
               productId: item.productId,
@@ -136,11 +209,7 @@ export async function POST(req: Request) {
         include: {
           customer: true,
           invoice: true,
-          items: {
-            include: {
-              product: true,
-            },
-          },
+          items: true,
         },
       });
 
@@ -151,20 +220,24 @@ export async function POST(req: Request) {
         data: {
           paidAmount: newPaidAmount,
           balanceDue: newBalanceDue,
-          status: newStatus,
+          status: invoiceStatus,
         },
       });
 
       return createdReceipt;
     });
 
-    return NextResponse.json(receipt, { status: 201 });
+    return NextResponse.json(receipt);
   } catch (error) {
     console.error("CREATE RECEIPT ERROR:", error);
 
     return NextResponse.json(
-      { message: "ไม่สามารถสร้างใบเสร็จรับเงินได้" },
-      { status: 500 }
+      {
+        message: "ไม่สามารถสร้างใบเสร็จรับเงินได้",
+      },
+      {
+        status: 500,
+      }
     );
   }
 }
