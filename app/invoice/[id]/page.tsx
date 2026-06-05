@@ -1,0 +1,355 @@
+import Link from "next/link";
+import { notFound } from "next/navigation";
+import { prisma } from "@/lib/prisma";
+import PrintButton from "@/app/components/PrintButton";
+import { ArrowLeft } from "lucide-react";
+
+type PageProps = {
+  params: Promise<{
+    id: string;
+  }>;
+};
+
+function money(value: number) {
+  return new Intl.NumberFormat("th-TH", {
+    style: "currency",
+    currency: "THB",
+  }).format(value || 0);
+}
+
+function statusText(status: string) {
+  if (status === "DRAFT") return "ร่าง";
+  if (status === "PAID") return "ชำระแล้ว";
+  if (status === "PARTIAL") return "ชำระบางส่วน";
+  if (status === "UNPAID") return "ยังไม่ชำระ";
+  if (status === "OVERDUE") return "เกินกำหนด";
+  if (status === "CANCELLED") return "ยกเลิก";
+  return status;
+}
+
+function formatDate(value: Date | null | undefined) {
+  if (!value) return "-";
+
+  return new Date(value).toLocaleDateString("th-TH", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+}
+
+export default async function InvoiceDetailPage({ params }: PageProps) {
+  const { id } = await params;
+  const invoiceId = Number(id);
+
+  if (!invoiceId) {
+    notFound();
+  }
+
+  const invoice = await prisma.invoice.findUnique({
+    where: {
+      id: invoiceId,
+    },
+    include: {
+      customer: true,
+      items: {
+        include: {
+          product: true,
+        },
+      },
+      receipts: true,
+    },
+  });
+
+  if (!invoice) {
+    notFound();
+  }
+
+  return (
+    <main className="min-h-screen bg-[#f7f3ea] px-6 py-8 print:bg-white print:px-0 print:py-0">
+      <div className="mx-auto max-w-5xl">
+        <div className="no-print mb-6 flex flex-col justify-between gap-4 rounded-3xl bg-white p-6 shadow-sm md:flex-row md:items-center">
+          <div>
+            <Link
+              href="/invoice"
+              className="mb-3 inline-flex items-center gap-2 text-sm text-gray-500 hover:text-gray-900"
+            >
+              <ArrowLeft size={16} />
+              กลับหน้าใบแจ้งหนี้
+            </Link>
+
+            <h1 className="text-2xl font-bold text-gray-900">
+              ดูใบแจ้งหนี้ / Print
+            </h1>
+
+            <p className="mt-1 text-sm text-gray-500">
+              เลขเอกสาร {invoice.documentNo}
+            </p>
+          </div>
+
+          <div className="flex gap-3">
+            <Link
+              href={`/invoice/${invoice.id}/edit`}
+              className="inline-flex items-center justify-center rounded-2xl border px-5 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+            >
+              แก้ไข
+            </Link>
+
+            <PrintButton label="Print" />
+          </div>
+        </div>
+
+        <section className="rounded-3xl bg-white p-8 shadow-sm print:rounded-none print:shadow-none">
+          <div className="mb-8 flex flex-col justify-between gap-6 border-b pb-6 md:flex-row">
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-wider text-[#9b7a34]">
+                Invoice
+              </p>
+
+              <h2 className="mt-2 text-3xl font-bold text-gray-900">
+                ใบแจ้งหนี้
+              </h2>
+
+              <p className="mt-2 text-sm text-gray-500">
+                เอกสารแจ้งยอดที่ต้องชำระ
+              </p>
+            </div>
+
+            <div className="text-left md:text-right">
+              <p className="text-sm text-gray-500">เลขที่เอกสาร</p>
+              <p className="mt-1 text-xl font-bold text-gray-900">
+                {invoice.documentNo}
+              </p>
+
+              <p className="mt-4 text-sm text-gray-500">วันที่ออกเอกสาร</p>
+              <p className="mt-1 font-semibold text-gray-900">
+                {formatDate(invoice.invoiceDate)}
+              </p>
+
+              <p className="mt-4 text-sm text-gray-500">วันครบกำหนด</p>
+              <p className="mt-1 font-semibold text-gray-900">
+                {formatDate(invoice.dueDate)}
+              </p>
+            </div>
+          </div>
+
+          <div className="mb-8 grid gap-6 md:grid-cols-2">
+            <div className="rounded-3xl bg-gray-50 p-5 print:border print:bg-white">
+              <p className="mb-3 text-sm font-bold text-gray-900">
+                ข้อมูลลูกค้า
+              </p>
+
+              <div className="space-y-2 text-sm text-gray-700">
+                <p>
+                  <span className="font-semibold">ชื่อ:</span>{" "}
+                  {invoice.customer?.name || "-"}
+                </p>
+
+                <p>
+                  <span className="font-semibold">เบอร์โทร:</span>{" "}
+                  {invoice.customer?.phone || "-"}
+                </p>
+
+                <p>
+                  <span className="font-semibold">อีเมล:</span>{" "}
+                  {invoice.customer?.email || "-"}
+                </p>
+
+                <p>
+                  <span className="font-semibold">ที่อยู่:</span>{" "}
+                  {invoice.customer?.address || "-"}
+                </p>
+              </div>
+            </div>
+
+            <div className="rounded-3xl bg-gray-50 p-5 print:border print:bg-white">
+              <p className="mb-3 text-sm font-bold text-gray-900">
+                สถานะการชำระเงิน
+              </p>
+
+              <div className="space-y-2 text-sm text-gray-700">
+                <p>
+                  <span className="font-semibold">สถานะ:</span>{" "}
+                  {statusText(invoice.status)}
+                </p>
+
+                <p>
+                  <span className="font-semibold">ยอดรวมที่ต้องชำระ:</span>{" "}
+                  {money(invoice.totalAmount)}
+                </p>
+
+                <p>
+                  <span className="font-semibold">ชำระแล้ว:</span>{" "}
+                  {money(invoice.paidAmount)}
+                </p>
+
+                <p>
+                  <span className="font-semibold">ค้างชำระ:</span>{" "}
+                  {money(invoice.balanceDue)}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="overflow-hidden rounded-3xl border print:rounded-none">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-gray-50 text-gray-600">
+                <tr>
+                  <th className="px-5 py-4 font-semibold">ลำดับ</th>
+                  <th className="px-5 py-4 font-semibold">รายการสินค้า</th>
+                  <th className="px-5 py-4 font-semibold text-right">จำนวน</th>
+                  <th className="px-5 py-4 font-semibold text-right">
+                    ราคาต่อหน่วย
+                  </th>
+                  <th className="px-5 py-4 font-semibold text-right">รวม</th>
+                </tr>
+              </thead>
+
+              <tbody className="divide-y">
+                {invoice.items.map((item, index) => (
+                  <tr key={item.id}>
+                    <td className="px-5 py-4 text-gray-600">{index + 1}</td>
+
+                    <td className="px-5 py-4">
+                      <p className="font-semibold text-gray-900">
+                        {item.productName}
+                      </p>
+
+                      {item.note && (
+                        <p className="mt-1 text-xs text-gray-500">
+                          {item.note}
+                        </p>
+                      )}
+                    </td>
+
+                    <td className="px-5 py-4 text-right text-gray-700">
+                      {item.quantity}
+                    </td>
+
+                    <td className="px-5 py-4 text-right text-gray-700">
+                      {money(item.unitPrice)}
+                    </td>
+
+                    <td className="px-5 py-4 text-right font-semibold text-gray-900">
+                      {money(item.totalPrice)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="mt-8 flex justify-end">
+            <div className="w-full max-w-md rounded-3xl bg-gray-50 p-5 print:border print:bg-white">
+              <div className="space-y-3 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-600">ยอดสินค้า</span>
+                  <span className="font-semibold text-gray-900">
+                    {money(invoice.subtotal)}
+                  </span>
+                </div>
+
+                <div className="flex justify-between">
+                  <span className="text-gray-600">ส่วนลด</span>
+                  <span className="font-semibold text-gray-900">
+                    - {money(invoice.discount)}
+                  </span>
+                </div>
+
+                <div className="flex justify-between">
+                  <span className="text-gray-600">VAT / ภาษี</span>
+                  <span className="font-semibold text-gray-900">
+                    {money(invoice.vat)}
+                  </span>
+                </div>
+
+                <div className="border-t pt-3">
+                  <div className="flex justify-between text-lg">
+                    <span className="font-bold text-gray-900">
+                      ยอดรวมที่ต้องชำระ
+                    </span>
+                    <span className="font-bold text-gray-900">
+                      {money(invoice.totalAmount)}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex justify-between text-green-700">
+                  <span className="font-semibold">ชำระแล้ว</span>
+                  <span className="font-bold">
+                    {money(invoice.paidAmount)}
+                  </span>
+                </div>
+
+                <div className="flex justify-between text-red-600">
+                  <span className="font-semibold">ยอดค้างชำระ</span>
+                  <span className="font-bold">
+                    {money(invoice.balanceDue)}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {invoice.note && (
+            <div className="mt-8 rounded-3xl bg-yellow-50 p-5 text-sm text-yellow-800 print:border print:bg-white print:text-gray-900">
+              <p className="font-bold">หมายเหตุ</p>
+              <p className="mt-2">{invoice.note}</p>
+            </div>
+          )}
+
+          {invoice.receipts.length > 0 && (
+            <div className="mt-8 rounded-3xl border p-5">
+              <p className="mb-4 text-sm font-bold text-gray-900">
+                ประวัติใบเสร็จรับเงิน
+              </p>
+
+              <table className="w-full text-left text-sm">
+                <thead className="bg-gray-50 text-gray-600">
+                  <tr>
+                    <th className="px-4 py-3 font-semibold">เลขใบเสร็จ</th>
+                    <th className="px-4 py-3 font-semibold">วันที่</th>
+                    <th className="px-4 py-3 text-right font-semibold">
+                      ยอดรับเงิน
+                    </th>
+                  </tr>
+                </thead>
+
+                <tbody className="divide-y">
+                  {invoice.receipts.map((receipt) => (
+                    <tr key={receipt.id}>
+                      <td className="px-4 py-3 font-semibold text-gray-900">
+                        {receipt.documentNo}
+                      </td>
+
+                      <td className="px-4 py-3 text-gray-600">
+                        {formatDate(receipt.receiptDate)}
+                      </td>
+
+                      <td className="px-4 py-3 text-right font-semibold text-green-700">
+                        {money(receipt.totalAmount)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <div className="mt-12 grid gap-8 text-center text-sm text-gray-700 md:grid-cols-2">
+            <div>
+              <div className="mx-auto mt-12 w-64 border-t pt-3">
+                ผู้รับใบแจ้งหนี้
+              </div>
+            </div>
+
+            <div>
+              <div className="mx-auto mt-12 w-64 border-t pt-3">
+                ผู้มีอำนาจลงนาม
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+  );
+}

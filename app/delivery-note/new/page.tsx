@@ -1,0 +1,402 @@
+"use client";
+
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { ArrowLeft, Plus, Save, Trash2 } from "lucide-react";
+
+type Product = {
+  id: number;
+  name: string;
+  sku: string | null;
+  stock: number;
+  unit: string | null;
+};
+
+type Customer = {
+  id: number;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  address: string | null;
+};
+
+type DeliveryItem = {
+  productId: string;
+  quantity: string;
+  note: string;
+};
+
+export default function NewDeliveryNotePage() {
+  const router = useRouter();
+
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+
+  const [customerId, setCustomerId] = useState("");
+  const [receiverName, setReceiverName] = useState("");
+  const [receiverPhone, setReceiverPhone] = useState("");
+  const [deliveryAddress, setDeliveryAddress] = useState("");
+  const [note, setNote] = useState("");
+
+  const [items, setItems] = useState<DeliveryItem[]>([
+    {
+      productId: "",
+      quantity: "1",
+      note: "",
+    },
+  ]);
+
+  const [loading, setLoading] = useState(false);
+  const [loadingData, setLoadingData] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    async function loadData() {
+      try {
+        const [customersRes, productsRes] = await Promise.all([
+          fetch("/api/customers"),
+          fetch("/api/products"),
+        ]);
+
+        const customersData = await customersRes.json();
+        const productsData = await productsRes.json();
+
+        setCustomers(customersData);
+        setProducts(productsData);
+      } catch (err) {
+        console.error(err);
+        setError("โหลดข้อมูลลูกค้า/สินค้าไม่สำเร็จ");
+      } finally {
+        setLoadingData(false);
+      }
+    }
+
+    loadData();
+  }, []);
+
+  function handleCustomerChange(value: string) {
+    setCustomerId(value);
+
+    const customer = customers.find((item) => String(item.id) === value);
+
+    if (customer) {
+      setReceiverName(customer.name);
+      setReceiverPhone(customer.phone || "");
+      setDeliveryAddress(customer.address || "");
+    }
+  }
+
+  function addItem() {
+    setItems([
+      ...items,
+      {
+        productId: "",
+        quantity: "1",
+        note: "",
+      },
+    ]);
+  }
+
+  function removeItem(index: number) {
+    if (items.length === 1) return;
+
+    setItems(items.filter((_, i) => i !== index));
+  }
+
+  function updateItem(index: number, field: keyof DeliveryItem, value: string) {
+    const nextItems = [...items];
+    nextItems[index][field] = value;
+    setItems(nextItems);
+  }
+
+  function getProduct(productId: string) {
+    return products.find((product) => String(product.id) === productId);
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+
+    const cleanItems = items.filter(
+      (item) => item.productId && Number(item.quantity) > 0
+    );
+
+    if (cleanItems.length === 0) {
+      setError("กรุณาเลือกสินค้าอย่างน้อย 1 รายการ");
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/delivery-note", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          customerId: customerId || null,
+          receiverName,
+          receiverPhone,
+          deliveryAddress,
+          note,
+          items: cleanItems,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setError(data.message || "สร้างใบส่งสินค้าไม่สำเร็จ");
+        setLoading(false);
+        return;
+      }
+
+      router.push("/delivery-note");
+      router.refresh();
+    } catch (err) {
+      console.error(err);
+      setError("เกิดข้อผิดพลาด กรุณาลองใหม่");
+      setLoading(false);
+    }
+  }
+
+  return (
+    <main className="min-h-screen bg-[#f7f3ea] px-6 py-8">
+      <div className="mx-auto max-w-6xl">
+        <div className="mb-6 rounded-3xl bg-white p-6 shadow-sm">
+          <Link
+            href="/delivery-note"
+            className="mb-3 inline-flex items-center gap-2 text-sm text-gray-500 hover:text-gray-900"
+          >
+            <ArrowLeft size={16} />
+            กลับหน้าใบส่งสินค้า
+          </Link>
+
+          <h1 className="text-2xl font-bold text-gray-900">
+            สร้างใบส่งสินค้า
+          </h1>
+
+          <p className="mt-1 text-sm text-gray-500">
+            เลือกลูกค้า รายการสินค้า และข้อมูลผู้รับสินค้า
+          </p>
+        </div>
+
+        <form
+          onSubmit={handleSubmit}
+          className="rounded-3xl bg-white p-6 shadow-sm"
+        >
+          {error && (
+            <div className="mb-5 rounded-2xl bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+              {error}
+            </div>
+          )}
+
+          {loadingData ? (
+            <div className="rounded-2xl bg-gray-50 p-6 text-sm text-gray-500">
+              กำลังโหลดข้อมูล...
+            </div>
+          ) : (
+            <>
+              <div className="grid gap-5 md:grid-cols-2">
+                <div>
+                  <label className="mb-2 block text-sm font-semibold text-gray-700">
+                    ลูกค้า
+                  </label>
+
+                  <select
+                    value={customerId}
+                    onChange={(e) => handleCustomerChange(e.target.value)}
+                    className="w-full rounded-2xl border px-4 py-3 text-sm outline-none focus:border-gray-900"
+                  >
+                    <option value="">ไม่ระบุลูกค้า</option>
+                    {customers.map((customer) => (
+                      <option key={customer.id} value={customer.id}>
+                        {customer.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-semibold text-gray-700">
+                    ชื่อผู้รับ
+                  </label>
+
+                  <input
+                    value={receiverName}
+                    onChange={(e) => setReceiverName(e.target.value)}
+                    placeholder="ชื่อผู้รับสินค้า"
+                    className="w-full rounded-2xl border px-4 py-3 text-sm outline-none focus:border-gray-900"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-semibold text-gray-700">
+                    เบอร์ผู้รับ
+                  </label>
+
+                  <input
+                    value={receiverPhone}
+                    onChange={(e) => setReceiverPhone(e.target.value)}
+                    placeholder="เบอร์โทรผู้รับ"
+                    className="w-full rounded-2xl border px-4 py-3 text-sm outline-none focus:border-gray-900"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-semibold text-gray-700">
+                    หมายเหตุ
+                  </label>
+
+                  <input
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                    placeholder="เช่น ส่งด่วน / รอบเช้า"
+                    className="w-full rounded-2xl border px-4 py-3 text-sm outline-none focus:border-gray-900"
+                  />
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="mb-2 block text-sm font-semibold text-gray-700">
+                    ที่อยู่จัดส่ง
+                  </label>
+
+                  <textarea
+                    value={deliveryAddress}
+                    onChange={(e) => setDeliveryAddress(e.target.value)}
+                    placeholder="ที่อยู่สำหรับจัดส่งสินค้า"
+                    rows={3}
+                    className="w-full rounded-2xl border px-4 py-3 text-sm outline-none focus:border-gray-900"
+                  />
+                </div>
+              </div>
+
+              <div className="mt-8">
+                <div className="mb-4 flex items-center justify-between">
+                  <h2 className="text-lg font-bold text-gray-900">
+                    รายการสินค้า
+                  </h2>
+
+                  <button
+                    type="button"
+                    onClick={addItem}
+                    className="inline-flex items-center gap-2 rounded-2xl border px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                  >
+                    <Plus size={16} />
+                    เพิ่มรายการ
+                  </button>
+                </div>
+
+                <div className="space-y-4">
+                  {items.map((item, index) => {
+                    const selectedProduct = getProduct(item.productId);
+
+                    return (
+                      <div
+                        key={index}
+                        className="rounded-3xl border bg-gray-50 p-4"
+                      >
+                        <div className="grid gap-4 md:grid-cols-[1fr_140px_1fr_50px]">
+                          <div>
+                            <label className="mb-2 block text-xs font-semibold text-gray-600">
+                              สินค้า
+                            </label>
+
+                            <select
+                              value={item.productId}
+                              onChange={(e) =>
+                                updateItem(index, "productId", e.target.value)
+                              }
+                              className="w-full rounded-2xl border bg-white px-4 py-3 text-sm outline-none focus:border-gray-900"
+                            >
+                              <option value="">เลือกสินค้า</option>
+                              {products.map((product) => (
+                                <option key={product.id} value={product.id}>
+                                  {product.sku ? `${product.sku} - ` : ""}
+                                  {product.name}
+                                </option>
+                              ))}
+                            </select>
+
+                            {selectedProduct && (
+                              <p className="mt-2 text-xs text-gray-500">
+                                คงเหลือ {selectedProduct.stock}{" "}
+                                {selectedProduct.unit || ""}
+                              </p>
+                            )}
+                          </div>
+
+                          <div>
+                            <label className="mb-2 block text-xs font-semibold text-gray-600">
+                              จำนวน
+                            </label>
+
+                            <input
+                              type="number"
+                              min="1"
+                              value={item.quantity}
+                              onChange={(e) =>
+                                updateItem(index, "quantity", e.target.value)
+                              }
+                              className="w-full rounded-2xl border bg-white px-4 py-3 text-sm outline-none focus:border-gray-900"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="mb-2 block text-xs font-semibold text-gray-600">
+                              หมายเหตุรายการ
+                            </label>
+
+                            <input
+                              value={item.note}
+                              onChange={(e) =>
+                                updateItem(index, "note", e.target.value)
+                              }
+                              placeholder="เช่น แพ็คแยก"
+                              className="w-full rounded-2xl border bg-white px-4 py-3 text-sm outline-none focus:border-gray-900"
+                            />
+                          </div>
+
+                          <div className="flex items-end">
+                            <button
+                              type="button"
+                              onClick={() => removeItem(index)}
+                              disabled={items.length === 1}
+                              className="flex h-11 w-11 items-center justify-center rounded-2xl border text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              <Trash2 size={18} />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="mt-6 flex justify-end gap-3">
+                <Link
+                  href="/delivery-note"
+                  className="rounded-2xl border px-5 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                >
+                  ยกเลิก
+                </Link>
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="inline-flex items-center gap-2 rounded-2xl bg-gray-900 px-5 py-3 text-sm font-semibold text-white hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <Save size={18} />
+                  {loading ? "กำลังบันทึก..." : "บันทึกใบส่งสินค้า"}
+                </button>
+              </div>
+            </>
+          )}
+        </form>
+      </div>
+    </main>
+  );
+}

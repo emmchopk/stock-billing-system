@@ -8,7 +8,6 @@
 !.yarn/patches
 !.yarn/plugins
 !.yarn/releases
-!.yarn/versions
 
 # testing
 /coverage
@@ -30,8 +29,18 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
-.env*
+# env files - ห้ามอัปไฟล์รหัสลับขึ้น GitHub
+.env
+.env.local
+.env.production
+.env.development
+.env*.local
+
+# database - ห้ามอัปฐานข้อมูลจริงขึ้น GitHub
+/prisma/dev.db
+/prisma/dev.db-journal
+/prisma/*.db
+/prisma/*.db-journal
 
 # vercel
 .vercel
@@ -39,3 +48,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# generated prisma
+/app/generated/prisma
