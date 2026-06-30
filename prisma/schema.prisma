@@ -7,90 +7,187 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-/**
- * =========================
- * USER / CUSTOMER
- * =========================
- */
-
 model Customer {
-  id        Int      @id @default(autoincrement())
-  name      String
-  phone     String?
-  email     String?
-  address   String?
-
-  pickingLists  PickingList[]
-  deliveryNotes DeliveryNote[]
+  id            Int            @id @default(autoincrement())
+  name          String
+  phone         String?
+  email         String?
+  address       String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
   billingNotes  BillingNote[]
+  deliveryNotes DeliveryNote[]
   invoices      Invoice[]
+  pickingLists  PickingList[]
   receipts      Receipt[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
 }
-
-/**
- * =========================
- * PRODUCT / STOCK
- * =========================
- */
 
 model Product {
-  id          Int     @id @default(autoincrement())
-  name        String
-  sku         String? @unique
-  description String?
-
-  costPrice   Float   @default(0) // ต้นทุนต่อชิ้น
-  salePrice   Float   @default(0) // ราคาขายต่อชิ้น
-  stock       Int     @default(0)
-
-  unit        String? // ชิ้น / กล่อง / แพ็ค / ลัง
-  isActive    Boolean @default(true)
-
-  pickingItems  PickingListItem[]
+  id            Int                @id @default(autoincrement())
+  name          String
+  sku           String?            @unique
+  description   String?
+  costPrice     Float              @default(0)
+  salePrice     Float              @default(0)
+  stock         Int                @default(0)
+  unit          String?
+  isActive      Boolean            @default(true)
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
   deliveryItems DeliveryNoteItem[]
   invoiceItems  InvoiceItem[]
+  pickingItems  PickingListItem[]
   receiptItems  ReceiptItem[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
 }
 
-/**
- * =========================
- * 1. ใบจัดสินค้า
- * =========================
- */
-
 model PickingList {
-  id             Int    @id @default(autoincrement())
-  documentNo     String @unique
-
-  customerId     Int?
-  customer       Customer? @relation(fields: [customerId], references: [id])
-
-  status         PickingStatus @default(DRAFT)
-
-  note           String?
-  items          PickingListItem[]
-
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id         Int               @id @default(autoincrement())
+  documentNo String            @unique
+  customerId Int?
+  status     PickingStatus     @default(DRAFT)
+  note       String?
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+  customer   Customer?         @relation(fields: [customerId], references: [id])
+  items      PickingListItem[]
 }
 
 model PickingListItem {
-  id            Int @id @default(autoincrement())
-
+  id            Int         @id @default(autoincrement())
   pickingListId Int
-  pickingList   PickingList @relation(fields: [pickingListId], references: [id], onDelete: Cascade)
-
   productId     Int
-  product       Product @relation(fields: [productId], references: [id])
-
-  quantity      Int @default(1)
+  quantity      Int         @default(1)
   note          String?
+  pickingList   PickingList @relation(fields: [pickingListId], references: [id], onDelete: Cascade)
+  product       Product     @relation(fields: [productId], references: [id])
+}
+
+model DeliveryNote {
+  id              Int                @id @default(autoincrement())
+  documentNo      String             @unique
+  customerId      Int?
+  deliveryDate    DateTime           @default(now())
+  status          DeliveryStatus     @default(DRAFT)
+  receiverName    String?
+  receiverPhone   String?
+  deliveryAddress String?
+  note            String?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  customer        Customer?          @relation(fields: [customerId], references: [id])
+  items           DeliveryNoteItem[]
+}
+
+model DeliveryNoteItem {
+  id             Int          @id @default(autoincrement())
+  deliveryNoteId Int
+  productId      Int
+  quantity       Int          @default(1)
+  note           String?
+  deliveryNote   DeliveryNote @relation(fields: [deliveryNoteId], references: [id], onDelete: Cascade)
+  product        Product      @relation(fields: [productId], references: [id])
+}
+
+model BillingNote {
+  id          Int           @id @default(autoincrement())
+  documentNo  String        @unique
+  customerId  Int?
+  billingDate DateTime      @default(now())
+  dueDate     DateTime?
+  subtotal    Float         @default(0)
+  discount    Float         @default(0)
+  vat         Float         @default(0)
+  totalAmount Float         @default(0)
+  status      BillingStatus @default(DRAFT)
+  note        String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  customer    Customer?     @relation(fields: [customerId], references: [id])
+  invoices    Invoice[]
+}
+
+model Invoice {
+  id            Int           @id @default(autoincrement())
+  documentNo    String        @unique
+  customerId    Int?
+  billingNoteId Int?
+  invoiceDate   DateTime      @default(now())
+  dueDate       DateTime?
+  subtotal      Float         @default(0)
+  discount      Float         @default(0)
+  vat           Float         @default(0)
+  totalAmount   Float         @default(0)
+  paidAmount    Float         @default(0)
+  balanceDue    Float         @default(0)
+  status        InvoiceStatus @default(DRAFT)
+  note          String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  billingNote   BillingNote?  @relation(fields: [billingNoteId], references: [id])
+  customer      Customer?     @relation(fields: [customerId], references: [id])
+  items         InvoiceItem[]
+  receipts      Receipt[]
+}
+
+model InvoiceItem {
+  id          Int      @id @default(autoincrement())
+  invoiceId   Int
+  productId   Int?
+  productName String
+  quantity    Int      @default(1)
+  costPrice   Float    @default(0)
+  unitPrice   Float    @default(0)
+  totalCost   Float    @default(0)
+  totalPrice  Float    @default(0)
+  note        String?
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  product     Product? @relation(fields: [productId], references: [id])
+}
+
+model Receipt {
+  id            Int           @id @default(autoincrement())
+  documentNo    String        @unique
+  customerId    Int?
+  invoiceId     Int?
+  receiptDate   DateTime      @default(now())
+  subtotal      Float         @default(0)
+  discount      Float         @default(0)
+  vat           Float         @default(0)
+  totalAmount   Float         @default(0)
+  paymentMethod PaymentMethod @default(CASH)
+  paymentRef    String?
+  note          String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  customer      Customer?     @relation(fields: [customerId], references: [id])
+  invoice       Invoice?      @relation(fields: [invoiceId], references: [id])
+  items         ReceiptItem[]
+}
+
+model ReceiptItem {
+  id          Int      @id @default(autoincrement())
+  receiptId   Int
+  productId   Int?
+  productName String
+  quantity    Int      @default(1)
+  costPrice   Float    @default(0)
+  unitPrice   Float    @default(0)
+  totalCost   Float    @default(0)
+  totalPrice  Float    @default(0)
+  note        String?
+  product     Product? @relation(fields: [productId], references: [id])
+  receipt     Receipt  @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+}
+
+model Expense {
+  id          Int             @id @default(autoincrement())
+  title       String
+  category    ExpenseCategory @default(OTHER)
+  amount      Float           @default(0)
+  expenseDate DateTime        @default(now())
+  note        String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
 }
 
 enum PickingStatus {
@@ -100,46 +197,6 @@ enum PickingStatus {
   CANCELLED
 }
 
-/**
- * =========================
- * 2. ใบส่งสินค้า
- * =========================
- */
-
-model DeliveryNote {
-  id             Int    @id @default(autoincrement())
-  documentNo     String @unique
-
-  customerId     Int?
-  customer       Customer? @relation(fields: [customerId], references: [id])
-
-  deliveryDate   DateTime @default(now())
-  status         DeliveryStatus @default(DRAFT)
-
-  receiverName   String?
-  receiverPhone  String?
-  deliveryAddress String?
-
-  note           String?
-  items          DeliveryNoteItem[]
-
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-}
-
-model DeliveryNoteItem {
-  id              Int @id @default(autoincrement())
-
-  deliveryNoteId  Int
-  deliveryNote    DeliveryNote @relation(fields: [deliveryNoteId], references: [id], onDelete: Cascade)
-
-  productId       Int
-  product         Product @relation(fields: [productId], references: [id])
-
-  quantity        Int @default(1)
-  note            String?
-}
-
 enum DeliveryStatus {
   DRAFT
   DELIVERING
@@ -147,100 +204,11 @@ enum DeliveryStatus {
   CANCELLED
 }
 
-/**
- * =========================
- * 3. ใบวางบิล
- * =========================
- */
-
-model BillingNote {
-  id             Int    @id @default(autoincrement())
-  documentNo     String @unique
-
-  customerId     Int?
-  customer       Customer? @relation(fields: [customerId], references: [id])
-
-  billingDate    DateTime @default(now())
-  dueDate        DateTime?
-
-  subtotal       Float @default(0)
-  discount       Float @default(0)
-  vat            Float @default(0)
-  totalAmount    Float @default(0)
-
-  status         BillingStatus @default(DRAFT)
-
-  note           String?
-
-  invoices       Invoice[]
-
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-}
-
 enum BillingStatus {
   DRAFT
   WAITING_PAYMENT
   PAID
   CANCELLED
-}
-
-/**
- * =========================
- * 4. ใบแจ้งหนี้
- * =========================
- */
-
-model Invoice {
-  id             Int    @id @default(autoincrement())
-  documentNo     String @unique
-
-  customerId     Int?
-  customer       Customer? @relation(fields: [customerId], references: [id])
-
-  billingNoteId  Int?
-  billingNote    BillingNote? @relation(fields: [billingNoteId], references: [id])
-
-  invoiceDate    DateTime @default(now())
-  dueDate        DateTime?
-
-  subtotal       Float @default(0)
-  discount       Float @default(0)
-  vat            Float @default(0)
-  totalAmount    Float @default(0)
-
-  paidAmount     Float @default(0)
-  balanceDue     Float @default(0)
-
-  status         InvoiceStatus @default(DRAFT)
-
-  note           String?
-  items          InvoiceItem[]
-  receipts       Receipt[]
-
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-}
-
-model InvoiceItem {
-  id          Int @id @default(autoincrement())
-
-  invoiceId   Int
-  invoice     Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-
-  productId   Int?
-  product     Product? @relation(fields: [productId], references: [id])
-
-  productName String
-  quantity    Int @default(1)
-
-  costPrice   Float @default(0)
-  unitPrice   Float @default(0)
-
-  totalCost   Float @default(0)
-  totalPrice  Float @default(0)
-
-  note        String?
 }
 
 enum InvoiceStatus {
@@ -252,87 +220,12 @@ enum InvoiceStatus {
   CANCELLED
 }
 
-/**
- * =========================
- * 5. ใบเสร็จรับเงิน
- * =========================
- */
-
-model Receipt {
-  id             Int    @id @default(autoincrement())
-  documentNo     String @unique
-
-  customerId     Int?
-  customer       Customer? @relation(fields: [customerId], references: [id])
-
-  invoiceId      Int?
-  invoice        Invoice? @relation(fields: [invoiceId], references: [id])
-
-  receiptDate    DateTime @default(now())
-
-  subtotal       Float @default(0)
-  discount       Float @default(0)
-  vat            Float @default(0)
-  totalAmount    Float @default(0)
-
-  paymentMethod  PaymentMethod @default(CASH)
-  paymentRef     String?
-
-  note           String?
-  items          ReceiptItem[]
-
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-}
-
-model ReceiptItem {
-  id          Int @id @default(autoincrement())
-
-  receiptId   Int
-  receipt     Receipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
-
-  productId   Int?
-  product     Product? @relation(fields: [productId], references: [id])
-
-  productName String
-  quantity    Int @default(1)
-
-  costPrice   Float @default(0)
-  unitPrice   Float @default(0)
-
-  totalCost   Float @default(0)
-  totalPrice  Float @default(0)
-
-  note        String?
-}
-
 enum PaymentMethod {
   CASH
   TRANSFER
   CREDIT_CARD
   QR
   OTHER
-}
-
-/**
- * =========================
- * 6. ต้นทุน / รายจ่าย / Dashboard
- * =========================
- */
-
-model Expense {
-  id          Int @id @default(autoincrement())
-
-  title       String
-  category    ExpenseCategory @default(OTHER)
-
-  amount      Float @default(0)
-  expenseDate DateTime @default(now())
-
-  note        String?
-
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
 }
 
 enum ExpenseCategory {
